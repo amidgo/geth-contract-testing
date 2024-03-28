@@ -18,7 +18,7 @@ contract Owner {
     mapping(address => bool) public whiteList;
 
     modifier checkOfWhiteLists(address adr) {
-        require(!whiteList[adr], "this address not in whitelist");
+        require(whiteList[adr], "this address not in whitelist");
         _;
     }
 

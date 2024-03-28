@@ -50,6 +50,7 @@ func Test_UpdateWhiteList(t *testing.T) {
 	// тут мы проверяем что обновить контракт может только owner
 	_, err = network.Contract.UpdateWhiteList(user.TransactOpts, user.Address())
 	require.Equal(t, "execution reverted: you not owner", err.Error())
+	log.Printf("%T", err)
 
 	network.Commit()
 
@@ -112,7 +113,34 @@ func Test_CreateUser(t *testing.T) {
 }
 
 func Test_SellProduct(t *testing.T) {
+	ctx := context.Background()
+	// создаём случайного пользователя с 10 ether
+	user, err := NewAccount(big.NewInt(0).Mul(Ether, big.NewInt(10)))
+	require.NoError(t, err, "failed create new account")
 
+	// создаём сетку
+	network, err := NewNetwork(ctx, user)
+	require.NoError(t, err, "failed create new network")
+
+	_, err = network.Contract.UpdateWhiteList(network.Owner.TransactOpts, user.Address())
+	require.NoError(t, err, "failed update white list")
+
+	network.Commit()
+
+	_, err = network.Contract.CreateProduct(user.TransactOpts, "coca-cola", Ether, "праздник к нам приходит")
+	require.NoError(t, err, "failed create product")
+
+	network.Commit()
+
+	_, err = network.Contract.ApproveProduct(network.Owner.TransactOpts, big.NewInt(0))
+	require.NoError(t, err, "failed approve product")
+
+	network.Commit()
+
+	_, err = network.Contract.SellProduct(network.Owner.TransactOpts, big.NewInt(0))
+	require.Equal(t, err.Error(), "execution reverted: you not a product owner")
+
+	network.Commit()
 }
 
 type Account struct {
