@@ -51,6 +51,8 @@ func Test_UpdateWhiteList(t *testing.T) {
 	_, err = network.Contract.UpdateWhiteList(user.TransactOpts, user.Address())
 	require.Equal(t, "execution reverted: you not owner", err.Error())
 
+	network.Commit()
+
 	// проверяем что ничего не изменилось
 	inWhiteList, err = network.Contract.WhiteList(network.CallOpts(ctx, &user), user.Address())
 	require.NoError(t, err, "failed call contract white list")
@@ -58,23 +60,55 @@ func Test_UpdateWhiteList(t *testing.T) {
 	assert.False(t, inWhiteList, "user in white list")
 
 	// эта штука нужна чтобы мы могли совершить новую транзакцию, обязатель после деплоя или иных транзакций
-	network.Commit()
 
 	// добавляем пользователя в whitelist от владельца
 	_, err = network.Contract.UpdateWhiteList(network.Owner.TransactOpts, user.Address())
 	require.NoError(t, err, "failed call contract white list")
+
+	network.Commit()
 
 	// проверяем что всё чикибамбони
 	inWhiteList, err = network.Contract.WhiteList(network.CallOpts(ctx, &network.Owner), user.Address())
 	require.NoError(t, err, "failed call contract white list")
 
 	assert.True(t, inWhiteList)
-
-	network.Commit()
 }
 
 func Test_CreateUser(t *testing.T) {
+	ctx := context.Background()
+	// создаём случайного пользователя с 10 ether
+	user, err := NewAccount(big.NewInt(0).Mul(Ether, big.NewInt(10)))
+	require.NoError(t, err, "failed create new account")
 
+	// создаём сетку
+	network, err := NewNetwork(ctx, user)
+	require.NoError(t, err, "failed create new network")
+
+	const userLogin = "user"
+
+	// убеждаемся что пользователя пока что не существует
+	address, err := network.Contract.Logins(network.CallOpts(ctx, &user), userLogin)
+	require.NoError(t, err, "failed get user by login")
+
+	assert.Equal(t, common.Address{}, address, "wrong address")
+
+	// регистрируем пользователя под логином
+	_, err = network.Contract.CreateUser(user.TransactOpts, userLogin)
+	require.NoError(t, err, "failed create user")
+
+	network.Commit()
+
+	// убеждаемся что пользователь успешно зарегистрирован
+	address, err = network.Contract.Logins(network.CallOpts(ctx, &user), userLogin)
+	require.NoError(t, err, "failed get user by login")
+
+	assert.Equal(t, user.Address(), address, "wrong address")
+
+	// пытаемся зарегистрировать пользователя с тем же логином
+	_, err = network.Contract.CreateUser(user.TransactOpts, userLogin)
+	require.Equal(t, err.Error(), "execution reverted: this login exist")
+
+	network.Commit()
 }
 
 func Test_SellProduct(t *testing.T) {

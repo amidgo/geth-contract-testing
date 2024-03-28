@@ -40,7 +40,15 @@ contract Owner {
         _;
     }
 
-    function register(string memory _login) public loginNotExists(_login) {
+    modifier onlyProductOwner(uint product_id) {
+        require(
+            products[product_id].owner == msg.sender,
+            "you not a product owner"
+        );
+        _;
+    }
+
+    function createUser(string memory _login) public loginNotExists(_login) {
         logins[_login] = msg.sender;
     }
 
@@ -96,7 +104,11 @@ contract Owner {
 
     function sellProduct(
         uint product_id
-    ) public checkStatusProduct(product_id, Status.Closed) {
+    )
+        public
+        onlyProductOwner(product_id)
+        checkStatusProduct(product_id, Status.Closed)
+    {
         products[product_id].status = Status.Approved;
     }
 
