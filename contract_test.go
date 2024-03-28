@@ -23,6 +23,7 @@ const chainID int64 = 12345
 
 var Ether = big.NewInt(1000000000000000000)
 
+// middleware для того чтобы у всех сеток был одинаковый chainID
 var withChainID = func(chainID int64) func(nodeConf *node.Config, ethConf *ethconfig.Config) {
 	return func(nodeConf *node.Config, ethConf *ethconfig.Config) {
 		ethConf.Genesis.Config.ChainID = big.NewInt(chainID)
@@ -30,35 +31,46 @@ var withChainID = func(chainID int64) func(nodeConf *node.Config, ethConf *ethco
 }
 
 func Test_UpdateWhiteList(t *testing.T) {
-	t.Parallel()
-
 	ctx := context.Background()
+	// создаём случайного пользователя с 10 ether
 	user, err := NewAccount(big.NewInt(0).Mul(Ether, big.NewInt(10)))
 	require.NoError(t, err, "failed create new account")
 
+	// создаём сетку
 	network, err := NewNetwork(ctx, user)
 	require.NoError(t, err, "failed create new network")
 
+	// тут мы должны проверить что по умолчанию случайный пользователь не включен в whitelist
 	inWhiteList, err := network.Contract.WhiteList(network.CallOpts(ctx, &user), user.Address())
 	require.NoError(t, err, "failed call contract white list")
 
+	// ассертим что false
 	assert.False(t, inWhiteList, "user in white list")
 
+	// тут мы проверяем что обновить контракт может только owner
 	_, err = network.Contract.UpdateWhiteList(user.TransactOpts, user.Address())
-	require.NoError(t, err)
+	require.Equal(t, "execution reverted: you not owner", err.Error())
 
+	// проверяем что ничего не изменилось
 	inWhiteList, err = network.Contract.WhiteList(network.CallOpts(ctx, &user), user.Address())
 	require.NoError(t, err, "failed call contract white list")
 
 	assert.False(t, inWhiteList, "user in white list")
 
-	_, err = network.Contract.UpdateWhiteList(network.Owner.TransactOpts, user.Address())
-	require.NoError(t, err)
+	// эта штука нужна чтобы мы могли совершить новую транзакцию, обязатель после деплоя или иных транзакций
+	network.Commit()
 
+	// добавляем пользователя в whitelist от владельца
+	_, err = network.Contract.UpdateWhiteList(network.Owner.TransactOpts, user.Address())
+	require.NoError(t, err, "failed call contract white list")
+
+	// проверяем что всё чикибамбони
 	inWhiteList, err = network.Contract.WhiteList(network.CallOpts(ctx, &network.Owner), user.Address())
 	require.NoError(t, err, "failed call contract white list")
 
-	assert.True(t, inWhiteList, "user not in white list")
+	assert.True(t, inWhiteList)
+
+	network.Commit()
 }
 
 func Test_CreateUser(t *testing.T) {
@@ -105,6 +117,10 @@ type Network struct {
 	Backend  *simulated.Backend
 }
 
+func (n *Network) Commit() {
+	n.Backend.Commit()
+}
+
 func (n *Network) CallOpts(ctx context.Context, acc *Account) *bind.CallOpts {
 	blockNumber, err := n.Backend.Client().BlockNumber(ctx)
 	if err != nil {
@@ -131,7 +147,9 @@ func NewNetwork(ctx context.Context, accounts ...Account) (*Network, error) {
 	alloc[owner.Address()] = types.Account{Balance: ownerBalance}
 
 	for _, account := range accounts {
-		alloc[account.TransactOpts.From] = types.Account{Balance: account.Balance}
+		alloc[account.TransactOpts.From] = types.Account{
+			Balance: account.Balance,
+		}
 	}
 
 	backend := simulated.NewBackend(alloc, withChainID(chainID))
@@ -140,6 +158,8 @@ func NewNetwork(ctx context.Context, accounts ...Account) (*Network, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed deploy contract")
 	}
+
+	backend.Commit()
 
 	return &Network{
 		Owner:    owner,
